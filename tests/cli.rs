@@ -61,6 +61,31 @@ fn recursively_processes_jpg_and_jpeg_only() {
 }
 
 #[test]
+fn prints_results_in_natural_path_order() {
+    let directory = tempfile::tempdir().unwrap();
+    let second = directory.path().join("2.jpg");
+    let tenth = directory.path().join("10.jpg");
+    fs::write(&second, sample()).unwrap();
+    fs::write(&tenth, sample()).unwrap();
+
+    let output = Command::cargo_bin("optijpeg")
+        .unwrap()
+        .arg(&tenth)
+        .arg(&second)
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let second_log = format!("[OK] {}:", second.display());
+    let tenth_log = format!("[OK] {}:", tenth.display());
+    assert!(
+        stdout.find(&second_log).unwrap() < stdout.find(&tenth_log).unwrap(),
+        "unexpected output order:\n{stdout}"
+    );
+}
+
+#[test]
 fn rejects_mixed_direct_and_recursive_arguments() {
     let directory = tempfile::tempdir().unwrap();
     let target = directory.path().join("image.jpg");

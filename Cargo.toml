@@ -9,6 +9,7 @@ license = "MIT"
 anyhow = "1.0"
 clap = { version = "4.5", features = ["derive"] }
 libc = "0.2"
+lexical-sort = "0.3.1"
 mozjpeg-sys = { version = "2.2.3", default-features = false, features = ["unwinding"] }
 rayon = "1.12.0"
 tempfile = "3.20"

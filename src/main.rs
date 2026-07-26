@@ -1,10 +1,10 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
-use std::sync::Mutex;
 
 use anyhow::{Result, bail};
 use clap::Parser;
+use lexical_sort::{PathSort, natural_lexical_cmp};
 use optijpeg::{Status, optimize_file};
 use rayon::prelude::*;
 use walkdir::WalkDir;
@@ -54,10 +54,16 @@ fn main() -> ExitCode {
         eprintln!("[ERROR] {error:#}");
     }
 
-    let summary = Mutex::new(summary);
-    files.into_par_iter().for_each(|path| {
-        let result = optimize_file(&path);
-        let mut summary = summary.lock().expect("summary lock should not be poisoned");
+    let results: Vec<_> = files
+        .into_par_iter()
+        .map(|path| {
+            let result = optimize_file(&path);
+            (path, result)
+        })
+        .collect();
+
+    let mut summary = summary;
+    for (path, result) in results {
         match result {
             Ok(result) => match result.status {
                 Status::Optimized => {
@@ -92,10 +98,7 @@ fn main() -> ExitCode {
                 eprintln!("[ERROR] {}: {error:#}", path.display());
             }
         }
-    });
-    let summary = summary
-        .into_inner()
-        .expect("summary lock should not be poisoned");
+    }
 
     println!(
         "Done: {} optimized, {} unchanged, {} failed, {} bytes saved",
@@ -141,7 +144,7 @@ fn discover_files(direct: &[PathBuf], recursive: &[PathBuf]) -> (Vec<PathBuf>, V
         }
     }
 
-    files.sort();
+    files.path_sort(natural_lexical_cmp);
     (files, errors)
 }
 
