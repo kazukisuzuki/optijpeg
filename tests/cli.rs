@@ -26,7 +26,7 @@ fn produces_an_optimized_progressive_without_changing_pixels() {
         .arg(&target)
         .assert()
         .success()
-        .stdout(predicate::str::contains(": 169 KB -> "))
+        .stdout(predicate::str::contains(": 165 KiB -> "))
         .stdout(predicate::str::contains("Done: 1 optimized"));
 
     let optimized = fs::read(&target).unwrap();

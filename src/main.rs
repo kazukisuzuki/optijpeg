@@ -69,26 +69,25 @@ fn main() -> ExitCode {
                 Status::Optimized => {
                     summary.optimized += 1;
                     summary.bytes_saved += result.bytes_saved();
-                    let original_size = format_kilobytes(result.original_size);
-                    let final_size = format_kilobytes(result.final_size);
+                    let original_size = format_size(result.original_size);
+                    let final_size = format_size(result.final_size);
                     if result.final_size <= result.original_size {
                         let percent =
                             result.bytes_saved() as f64 * 100.0 / result.original_size as f64;
                         println!(
-                            "[OK] {}: {} KB -> {} KB ({percent:.2}% saved, progressive)",
+                            "[OK] {}: {} -> {} ({percent:.2}% saved, progressive)",
                             path.display(),
                             original_size,
                             final_size,
                         );
                     } else {
-                        let kilobytes_larger =
-                            format_kilobytes(result.final_size - result.original_size);
+                        let size_larger = format_size(result.final_size - result.original_size);
                         println!(
-                            "[OK] {}: {} KB -> {} KB ({} KB larger, metadata removed, progressive)",
+                            "[OK] {}: {} -> {} ({} larger, metadata removed, progressive)",
                             path.display(),
                             original_size,
                             final_size,
-                            kilobytes_larger,
+                            size_larger,
                         );
                     }
                 }
@@ -105,11 +104,11 @@ fn main() -> ExitCode {
     }
 
     println!(
-        "Done: {} optimized, {} unchanged, {} failed, {} KB saved",
+        "Done: {} optimized, {} unchanged, {} failed, {} saved",
         format_number(summary.optimized),
         format_number(summary.unchanged),
         format_number(summary.failed),
-        format_kilobytes(summary.bytes_saved),
+        format_size(summary.bytes_saved),
     );
 
     if summary.failed == 0 {
@@ -134,9 +133,29 @@ fn format_number(value: impl ToString) -> String {
     formatted
 }
 
-fn format_kilobytes(bytes: u64) -> String {
-    let kilobytes = bytes / 1_000 + u64::from(bytes % 1_000 >= 500);
-    format_number(kilobytes)
+fn format_size(bytes: u64) -> String {
+    const KIBIBYTE: u64 = 1_024;
+    const MEBIBYTE: u64 = KIBIBYTE * 1_024;
+
+    if bytes < MEBIBYTE {
+        let kibibytes = bytes / KIBIBYTE + u64::from(bytes % KIBIBYTE >= KIBIBYTE / 2);
+        return format!("{} KiB", format_number(kibibytes));
+    }
+
+    let mut mebibytes = bytes / MEBIBYTE;
+    let remainder = bytes % MEBIBYTE;
+    let mut hundredths = (remainder * 100 + MEBIBYTE / 2) / MEBIBYTE;
+    if hundredths == 100 {
+        mebibytes += 1;
+        hundredths = 0;
+    }
+
+    let mebibytes = format_number(mebibytes);
+    match hundredths {
+        0 => format!("{mebibytes} MiB"),
+        value if value.is_multiple_of(10) => format!("{mebibytes}.{} MiB", value / 10),
+        value => format!("{mebibytes}.{value:02} MiB"),
+    }
 }
 
 fn discover_files(direct: &[PathBuf], recursive: &[PathBuf]) -> (Vec<PathBuf>, Vec<anyhow::Error>) {
@@ -204,7 +223,7 @@ fn is_jpeg_path(path: &Path) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{format_kilobytes, format_number};
+    use super::{format_number, format_size};
 
     #[test]
     fn formats_numbers_with_digit_grouping() {
@@ -216,11 +235,15 @@ mod tests {
     }
 
     #[test]
-    fn formats_bytes_as_rounded_kilobytes() {
-        assert_eq!(format_kilobytes(0), "0");
-        assert_eq!(format_kilobytes(499), "0");
-        assert_eq!(format_kilobytes(500), "1");
-        assert_eq!(format_kilobytes(360_152), "360");
-        assert_eq!(format_kilobytes(999_500), "1,000");
+    fn formats_bytes_as_binary_units() {
+        assert_eq!(format_size(0), "0 KiB");
+        assert_eq!(format_size(511), "0 KiB");
+        assert_eq!(format_size(512), "1 KiB");
+        assert_eq!(format_size(360_152), "352 KiB");
+        assert_eq!(format_size(1_048_575), "1,024 KiB");
+        assert_eq!(format_size(1_048_576), "1 MiB");
+        assert_eq!(format_size(1_572_864), "1.5 MiB");
+        assert_eq!(format_size(1_289_748), "1.23 MiB");
+        assert_eq!(format_size(1_073_741_824), "1,024 MiB");
     }
 }
