@@ -2,7 +2,7 @@
 
 Optimizes JPEG files losslessly in place.
 
-It preserves the quantized DCT coefficients and produces an optimized progressive JPEG.
+It uses MozJPEG to preserve the quantized DCT coefficients and produce an optimized progressive JPEG.
 
 All APP markers and comments are removed, including EXIF and ICC profiles.
 
