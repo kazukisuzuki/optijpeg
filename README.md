@@ -1,4 +1,4 @@
-# optijpeg
+# OptiJPEG
 
 Optimizes JPEG files losslessly in place.
 
