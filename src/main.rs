@@ -69,25 +69,26 @@ fn main() -> ExitCode {
                 Status::Optimized => {
                     summary.optimized += 1;
                     summary.bytes_saved += result.bytes_saved();
-                    let original_size = format_number(result.original_size);
-                    let final_size = format_number(result.final_size);
+                    let original_size = format_kilobytes(result.original_size);
+                    let final_size = format_kilobytes(result.final_size);
                     if result.final_size <= result.original_size {
                         let percent =
                             result.bytes_saved() as f64 * 100.0 / result.original_size as f64;
                         println!(
-                            "[OK] {}: {} -> {} bytes ({percent:.2}% saved, progressive)",
+                            "[OK] {}: {} KB -> {} KB ({percent:.2}% saved, progressive)",
                             path.display(),
                             original_size,
                             final_size,
                         );
                     } else {
-                        let bytes_larger = format_number(result.final_size - result.original_size);
+                        let kilobytes_larger =
+                            format_kilobytes(result.final_size - result.original_size);
                         println!(
-                            "[OK] {}: {} -> {} bytes ({} bytes larger, metadata removed, progressive)",
+                            "[OK] {}: {} KB -> {} KB ({} KB larger, metadata removed, progressive)",
                             path.display(),
                             original_size,
                             final_size,
-                            bytes_larger,
+                            kilobytes_larger,
                         );
                     }
                 }
@@ -104,11 +105,11 @@ fn main() -> ExitCode {
     }
 
     println!(
-        "Done: {} optimized, {} unchanged, {} failed, {} bytes saved",
+        "Done: {} optimized, {} unchanged, {} failed, {} KB saved",
         format_number(summary.optimized),
         format_number(summary.unchanged),
         format_number(summary.failed),
-        format_number(summary.bytes_saved),
+        format_kilobytes(summary.bytes_saved),
     );
 
     if summary.failed == 0 {
@@ -131,6 +132,11 @@ fn format_number(value: impl ToString) -> String {
     }
 
     formatted
+}
+
+fn format_kilobytes(bytes: u64) -> String {
+    let kilobytes = bytes / 1_000 + u64::from(bytes % 1_000 >= 500);
+    format_number(kilobytes)
 }
 
 fn discover_files(direct: &[PathBuf], recursive: &[PathBuf]) -> (Vec<PathBuf>, Vec<anyhow::Error>) {
@@ -198,7 +204,7 @@ fn is_jpeg_path(path: &Path) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::format_number;
+    use super::{format_kilobytes, format_number};
 
     #[test]
     fn formats_numbers_with_digit_grouping() {
@@ -207,5 +213,14 @@ mod tests {
         assert_eq!(format_number(1_000), "1,000");
         assert_eq!(format_number(360_152), "360,152");
         assert_eq!(format_number(u64::MAX), "18,446,744,073,709,551,615");
+    }
+
+    #[test]
+    fn formats_bytes_as_rounded_kilobytes() {
+        assert_eq!(format_kilobytes(0), "0");
+        assert_eq!(format_kilobytes(499), "0");
+        assert_eq!(format_kilobytes(500), "1");
+        assert_eq!(format_kilobytes(360_152), "360");
+        assert_eq!(format_kilobytes(999_500), "1,000");
     }
 }
