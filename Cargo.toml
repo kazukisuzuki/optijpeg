@@ -25,5 +25,4 @@ predicates = "3.1"
 codegen-units = 1
 lto = true
 opt-level = 2
-panic = "abort"
 strip = "symbols"
