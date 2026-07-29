@@ -4,6 +4,7 @@ version = "0.2.0"
 edition = "2024"
 description = "A cross-platform, lossless JPEG optimizer that strips metadata"
 license = "MIT"
+publish = false
 
 [dependencies]
 anyhow = "1.0"
