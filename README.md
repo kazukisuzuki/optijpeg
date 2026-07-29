@@ -45,3 +45,10 @@ A file without APP or comment markers is left unchanged unless optimization
 makes it smaller. A file containing those markers is replaced even when
 removing them makes the result larger. Processing continues after errors, and
 the exit status is non-zero if any file or recursive path fails.
+
+
+## License
+
+Licensed under the [MIT License](LICENSE).
+
+Third-party license notices are provided in [THIRD_PARTY_LICENSES.html](THIRD_PARTY_LICENSES.html).
