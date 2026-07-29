@@ -23,7 +23,11 @@ impl State {
         // The libjpeg API requires these C structs to be zero-initialized before
         // their respective create functions are called.
         Self {
+            // SAFETY: all fields have valid zero representations, and libjpeg
+            // initializes the structure before any field is read by Rust.
             decompress: unsafe { mem::zeroed() },
+            // SAFETY: all fields have valid zero representations, and libjpeg
+            // initializes the structure before any field is read by Rust.
             compress: unsafe { mem::zeroed() },
             decompress_created: false,
             compress_created: false,
@@ -69,18 +73,42 @@ impl OutputBuffer {
         // `size` initialized bytes, which remains valid for this object's life.
         Ok(unsafe { slice::from_raw_parts(self.pointer, length) }.to_vec())
     }
+
+    /// # Safety
+    ///
+    /// `compress` must have a live destination manager initialized by a
+    /// successful call to `jpeg_mem_dest` using this buffer's fields.
+    unsafe fn synchronize(&mut self, compress: &mut ffi::jpeg_compress_struct) {
+        // jpeg_mem_dest updates the caller's pointer only when its destination
+        // is terminated. On an error after the buffer grows, the old pointer
+        // may already have been freed, so synchronize it before cleanup.
+        // SAFETY: the caller guarantees that jpeg_mem_dest completed, so a
+        // non-null dest points to a live manager owned by compress.
+        let terminate =
+            unsafe { compress.dest.as_ref() }.and_then(|destination| destination.term_destination);
+        if let Some(terminate) = terminate {
+            // SAFETY: the callback belongs to compress's live destination
+            // manager and receives the same compression structure that owns it.
+            unsafe { terminate(compress) };
+        }
+    }
 }
 
 impl Drop for OutputBuffer {
     fn drop(&mut self) {
         if !self.pointer.is_null() {
-            // SAFETY: jpeg_mem_dest transfers ownership of this malloc-allocated
-            // buffer to the caller after compression.
+            // SAFETY: after successful compression or synchronization on error,
+            // pointer identifies the live malloc allocation transferred by
+            // jpeg_mem_dest, and OutputBuffer is its sole owner.
             unsafe { libc::free(self.pointer.cast::<c_void>()) };
         }
     }
 }
 
+/// # Safety
+///
+/// `info` must be supplied by libjpeg and point to its active common structure
+/// with an error manager that remains alive for the duration of this call.
 unsafe extern "C-unwind" fn error_exit(info: &mut ffi::jpeg_common_struct) {
     let code = if info.err.is_null() {
         -1
@@ -99,42 +127,62 @@ pub(super) fn transcode(input: &[u8]) -> Result<Vec<u8>> {
         .try_into()
         .map_err(|_| anyhow!("JPEG is too large for mozjpeg's memory API"))?;
 
+    // SAFETY: jpeg_error_mgr has a valid all-zero representation, and
+    // jpeg_std_error fully initializes it before libjpeg uses it.
     let mut source_error: ffi::jpeg_error_mgr = unsafe { mem::zeroed() };
+    // SAFETY: jpeg_error_mgr has a valid all-zero representation, and
+    // jpeg_std_error fully initializes it before libjpeg uses it.
     let mut destination_error: ffi::jpeg_error_mgr = unsafe { mem::zeroed() };
     let mut output = OutputBuffer::new();
     // Declared last so State is dropped before the error managers and output.
     let mut state = State::new();
+    let mut destination_configured = false;
 
-    let operation = panic::catch_unwind(AssertUnwindSafe(|| unsafe {
-        ffi::jpeg_std_error(&mut source_error).error_exit = Some(error_exit);
-        state.decompress.common.err = &mut source_error;
-        ffi::jpeg_create_decompress(&mut state.decompress);
-        state.decompress_created = true;
-        ffi::jpeg_mem_src(&mut state.decompress, input.as_ptr(), input_size);
+    let operation = panic::catch_unwind(AssertUnwindSafe(|| {
+        // SAFETY: the error managers, state, output fields, and input slice stay
+        // alive throughout these calls. The structs are initialized and used in
+        // libjpeg's required order, input covers input_size bytes, and the
+        // output fields are valid out-pointers. mozjpeg-sys enables C unwinding,
+        // and error_exit unwinds only as far as this catch_unwind boundary.
+        unsafe {
+            ffi::jpeg_std_error(&mut source_error).error_exit = Some(error_exit);
+            state.decompress.common.err = &mut source_error;
+            ffi::jpeg_create_decompress(&mut state.decompress);
+            state.decompress_created = true;
+            ffi::jpeg_mem_src(&mut state.decompress, input.as_ptr(), input_size);
 
-        ffi::jpeg_read_header(&mut state.decompress, 1);
-        let coefficients = ffi::jpeg_read_coefficients(&mut state.decompress);
+            ffi::jpeg_read_header(&mut state.decompress, 1);
+            let coefficients = ffi::jpeg_read_coefficients(&mut state.decompress);
 
-        ffi::jpeg_std_error(&mut destination_error).error_exit = Some(error_exit);
-        state.compress.common.err = &mut destination_error;
-        ffi::jpeg_create_compress(&mut state.compress);
-        state.compress_created = true;
-        ffi::jpeg_mem_dest(&mut state.compress, &mut output.pointer, &mut output.size);
+            ffi::jpeg_std_error(&mut destination_error).error_exit = Some(error_exit);
+            state.compress.common.err = &mut destination_error;
+            ffi::jpeg_create_compress(&mut state.compress);
+            state.compress_created = true;
+            ffi::jpeg_mem_dest(&mut state.compress, &mut output.pointer, &mut output.size);
+            destination_configured = true;
 
-        ffi::jpeg_copy_critical_parameters(&state.decompress, &mut state.compress);
-        ffi::jpeg_simple_progression(&mut state.compress);
-        state.compress.optimize_coding = 1;
-        state.compress.write_JFIF_header = 0;
-        state.compress.write_Adobe_marker = 0;
-        ffi::jpeg_write_coefficients(&mut state.compress, coefficients);
+            ffi::jpeg_copy_critical_parameters(&state.decompress, &mut state.compress);
+            ffi::jpeg_simple_progression(&mut state.compress);
+            state.compress.optimize_coding = 1;
+            state.compress.write_JFIF_header = 0;
+            state.compress.write_Adobe_marker = 0;
+            ffi::jpeg_write_coefficients(&mut state.compress, coefficients);
 
-        ffi::jpeg_finish_compress(&mut state.compress);
-        ffi::jpeg_finish_decompress(&mut state.decompress);
+            ffi::jpeg_finish_compress(&mut state.compress);
+            ffi::jpeg_finish_decompress(&mut state.decompress);
+        }
     }));
 
     match operation {
         Ok(()) => output.copy_to_vec(),
-        Err(payload) => Err(jpeg_error_from_panic(payload)),
+        Err(payload) => {
+            if destination_configured {
+                // SAFETY: jpeg_mem_dest completed, and its destination manager
+                // remains alive until State is dropped after this match.
+                unsafe { output.synchronize(&mut state.compress) };
+            }
+            Err(jpeg_error_from_panic(payload))
+        }
     }
 }
 
