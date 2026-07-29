@@ -1,4 +1,8 @@
 use std::fs;
+#[cfg(unix)]
+use std::os::unix::fs::symlink;
+#[cfg(windows)]
+use std::os::windows::fs::symlink_file as symlink;
 
 use assert_cmd::Command;
 use jpeg_decoder::Decoder;
@@ -102,6 +106,47 @@ fn rejects_mixed_direct_and_recursive_arguments() {
         .stderr(predicate::str::contains(
             "cannot be used with '--recursive <PATH>...'",
         ));
+}
+
+#[test]
+fn rejects_direct_files_without_a_jpeg_extension() {
+    let directory = tempfile::tempdir().unwrap();
+    let target = directory.path().join("image.png");
+    fs::write(&target, sample()).unwrap();
+
+    Command::cargo_bin("optijpeg")
+        .unwrap()
+        .arg(&target)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "file must have a .jpg or .jpeg extension",
+        ));
+}
+
+#[test]
+fn rejects_direct_symbolic_links() {
+    let directory = tempfile::tempdir().unwrap();
+    let target = directory.path().join("target.jpg");
+    let link = directory.path().join("link.jpg");
+    fs::write(&target, sample()).unwrap();
+    if let Err(error) = symlink(&target, &link) {
+        #[cfg(windows)]
+        if error.kind() == std::io::ErrorKind::PermissionDenied {
+            return;
+        }
+        panic!("failed to create test symbolic link: {error}");
+    }
+
+    Command::cargo_bin("optijpeg")
+        .unwrap()
+        .arg(&link)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("symbolic links are not supported"));
+
+    assert!(fs::symlink_metadata(link).unwrap().file_type().is_symlink());
+    assert_eq!(fs::read(target).unwrap(), sample());
 }
 
 #[test]

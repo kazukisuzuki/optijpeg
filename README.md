@@ -35,11 +35,11 @@ optijpeg image1.jpg image2.jpg
 optijpeg -r ./images1 ./images2
 ~~~
 
-`-r/--recursive` accepts one or more directories and processes files with
-`.jpg` or `.jpeg` extensions, case-insensitively. It cannot be combined with
-direct file arguments. Symbolic links are ignored. Direct file arguments may
-use any extension. Files are processed in parallel, and results are printed in
-natural path order (for example, `2.jpg` before `10.jpg`).
+Only files ending in `.jpg` or `.jpeg`, case-insensitively, are processed.
+Symbolic links are not followed. `-r/--recursive` accepts one or more
+directories as search roots and cannot be combined with direct file arguments.
+Files are processed in parallel, and results are printed in natural path order
+(for example, `2.jpg` before `10.jpg`).
 
 A file without APP or comment markers is left unchanged unless optimization
 makes it smaller. A file containing those markers is replaced even when

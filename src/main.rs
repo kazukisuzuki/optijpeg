@@ -1,8 +1,9 @@
 use std::collections::HashSet;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use clap::Parser;
 use lexical_sort::{PathSort, natural_lexical_cmp};
 use optijpeg::{Status, optimize_file};
@@ -13,7 +14,7 @@ use walkdir::WalkDir;
 #[command(
     version,
     about = "Optimize JPEG files losslessly in place",
-    after_help = "Direct file arguments may use any extension. Recursive searches process .jpg and .jpeg files."
+    after_help = "Only files ending in .jpg or .jpeg (case-insensitive) are processed. Directories are accepted only as recursive search roots; symbolic links are not followed."
 )]
 struct Cli {
     /// JPEG files to optimize in place
@@ -195,15 +196,27 @@ fn discover_files(direct: &[PathBuf], recursive: &[PathBuf]) -> (Vec<PathBuf>, V
 }
 
 fn validate_direct_file(path: &Path) -> Result<PathBuf> {
-    if path.is_dir() {
+    let metadata = fs::symlink_metadata(path)
+        .with_context(|| format!("failed to inspect {}", path.display()))?;
+
+    if metadata.file_type().is_symlink() {
+        bail!("symbolic links are not supported: {}", path.display());
+    }
+    if metadata.is_dir() {
         bail!(
             "{} is a directory; use -r {} for recursive processing",
             path.display(),
             path.display()
         );
     }
-    if !path.is_file() {
-        bail!("file does not exist: {}", path.display());
+    if !metadata.is_file() {
+        bail!("not a regular file: {}", path.display());
+    }
+    if !is_jpeg_path(path) {
+        bail!(
+            "file must have a .jpg or .jpeg extension: {}",
+            path.display()
+        );
     }
     Ok(path.to_path_buf())
 }
