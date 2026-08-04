@@ -17,7 +17,7 @@ cargo build --release
 ## Install
 
 ~~~sh
-cargo install --force --git https://github.com/kazukisuzuki/optijpeg.git
+cargo install --force --locked --git https://github.com/kazukisuzuki/optijpeg.git
 ~~~
 
 
